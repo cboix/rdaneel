@@ -46,19 +46,19 @@ class RedditScraper(Scraper):
     def scrapeTitle(self,title,d):
         """ Get the important attributes from the title and return 
         the updated dictionary with them """
-        d['data-ups'] = title['data-ups'].encode()
-        d['data-downs'] = title['data-downs'].encode()
+        d['karma'] = int(title['data-ups'].encode()) - \
+                int(title['data-downs'].encode())
         head = title.find('a', {'class' : 'title may-blank '})
-        d['title'] = head.getText().encode()
-        d['outUrl'] = head['href'].encode()
-        d['time'] = title.find('time')['title'].encode()
+        d['name'] = head.getText().encode()
+        d['content'] = head['href'].encode()
+        d['date'] = title.find('time')['title'].encode()
         return(d)
 
     def scrapeComment(self,cUrl):
         # initialize dictionary, create soup
-        post = {'hash' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
+        post = {'id' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
         soup = soupFromUrl(cUrl)
-        title = soup.find('div',attrs={'class' : ' thing id-t3_' + hash_str + ' odd link '})
+        title = soup.find('div',attrs={'class' : ' thing id-t3_' + post['id'] + ' odd link '})
         # update attributes from title:
         post = scrapeTitle(title,post)
 
@@ -75,19 +75,28 @@ class RedditScraper(Scraper):
         cParents = [x for x in cAll if x not in cChild]
         
         # for all of the parent comments, get text + upvotes
-        post['comments'] = [scrapeOneComment(x) for x in cParents]
+        post['comments'] = [scrapeOneComment('',x,soup) for x in cParents]
+        # Filter those with more or less karma!? No.
 
         # output to file
         writePost(post)
-        return(post['hash'])
+        return(post['id'])
 
-    def scrapeOneComment(self,comment):
-        
+    def scrapeOneComment(self,comment,soup):
+        cDict = { 'id' : comment['id'].split('_')[1].encode()}
+        # FIX encoding AND Hyperlinking!
+        cDict['content'] = comment.find('div',{'class' : 'md'}).getText().encode()
+        title = soup.find('div', {'data-fullname' : 't1_' + cDict['id'][:-3]})
+        cDict['karma'] = int(title['data-ups'].encode()) - \
+                int(title['data-downs'].encode())
+        return(cDict)
+
         # If it has urls, make sure to note this: 
 
     def writePost(self, post):
         """ Saves the post's data into our redis database. """
 
+        # Earth to Greg: take forum as well:
         self.db.zadd('posts', post['id'], post['karma'])
         self.db.hmset('post:' + post['id'], 
                       {
