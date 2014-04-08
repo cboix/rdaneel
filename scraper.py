@@ -35,10 +35,11 @@ class RedditScraper(Scraper):
             
         return lastID
 
-    def scrapeComment(cUrl):
-        d = {'hash' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4]}
+    def scrapeComment(self,cUrl):
+        d = {'hash' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
         soup = soupFromUrl(cUrl)
-        title = soup.findAll('div',attrs={'class' : ' thing id-t3_' + hash_str + ' odd link '})
+        title = soup.find('div',attrs={'class' : ' thing id-t3_' + hash_str + ' odd link '})
+        d = scrapeTitle(title,d)
         # get html, 
         # get soup
 
@@ -51,9 +52,16 @@ class RedditScraper(Scraper):
 
         return(d['hash'])
 
-    def scrapeTitle(title):
+    def scrapeTitle(self,title,d):
         """ Get the important attributes from the title and return 
-        a dictionary of them """
+        the updated dictionary with them """
+        d['data-ups'] = title['data-ups'].encode()
+        d['data-downs'] = title['data-downs'].encode()
+        head = title.find('a', {'class' : 'title may-blank '})
+        d['title'] = head.getText().encode()
+        d['outUrl'] = head['href'].encode()
+        d['time'] = title.find('time')['title'].encode()
+        return(d)
 
     def writePost(self, post):
         """ Saves the post's data into our redis database. """
