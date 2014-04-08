@@ -35,22 +35,13 @@ class RedditScraper(Scraper):
             
         return lastID
 
-    def scrapeComment(self,cUrl):
-        d = {'hash' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
-        soup = soupFromUrl(cUrl)
-        title = soup.find('div',attrs={'class' : ' thing id-t3_' + hash_str + ' odd link '})
-        d = scrapeTitle(title,d)
-        # get html, 
-        # get soup
+        """ Scrapes the individual page """
 
-        # find titles etc.
-
-        # go through top comments:
-        # for comment in:
-
-        # output to file
-
-        return(d['hash'])
+        # Find all urls/metadata
+        # for commentUrl:
+        #     scrapeComment(commentUrl)
+        # lastID = getLastID()
+        # return lastID
 
     def scrapeTitle(self,title,d):
         """ Get the important attributes from the title and return 
@@ -62,6 +53,33 @@ class RedditScraper(Scraper):
         d['outUrl'] = head['href'].encode()
         d['time'] = title.find('time')['title'].encode()
         return(d)
+
+    def scrapeComment(self,cUrl):
+        # initialize dictionary, create soup
+        post = {'hash' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
+        soup = soupFromUrl(cUrl)
+        title = soup.find('div',attrs={'class' : ' thing id-t3_' + hash_str + ' odd link '})
+        # update attributes from title:
+        post = scrapeTitle(title,post)
+
+        # get only the parent comments:
+        comments = soup.findAll('div',attrs={'class' : 'entry unvoted'})
+        cAll = [x.find('form',attrs={'class' : 'usertext'}) for x in comments]
+        cAll = [x for x in cAll if x != None]
+
+        childcomments = soup.findAll('div',attrs={'class' : 'child'})
+        cChild = [x.find('form',attrs={'class' : 'usertext'}) for x in childcomments]
+        cChild = [x for x in cChild if x != None]
+        cParents = [x for x in cAll if x not in cChild]
+        
+        # for all of the parent comments, get text + upvotes
+        post['comments'] = [scrapeOneComment(x) for x in cParents]
+
+        # output to file
+        writePost(post)
+        return(post['hash'])
+
+    def scrapeOneComment(self,comment):
 
     def writePost(self, post):
         """ Saves the post's data into our redis database. """
