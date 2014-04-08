@@ -68,8 +68,10 @@ class RedditScraper(Scraper):
         cAll = [x for x in cAll if x != None]
 
         childcomments = soup.findAll('div',attrs={'class' : 'child'})
-        cChild = [x.find('form',attrs={'class' : 'usertext'}) for x in childcomments]
-        cChild = [x for x in cChild if x != None]
+        cChild = [x.findAll('form',attrs={'class' : 'usertext'}) for x in childcomments]
+        cChild = [item for sublist in cChild for item in sublist] # flatten
+        cChild = list(set(cChild)) # unique
+        cChild = [x for x in cChild if x != None] # not needed
         cParents = [x for x in cAll if x not in cChild]
         
         # for all of the parent comments, get text + upvotes
@@ -80,6 +82,8 @@ class RedditScraper(Scraper):
         return(post['hash'])
 
     def scrapeOneComment(self,comment):
+        
+        # If it has urls, make sure to note this: 
 
     def writePost(self, post):
         """ Saves the post's data into our redis database. """
