@@ -4,11 +4,9 @@
 """
 
 from bs4 import BeautifulSoup
-from urllib2 import HTTPError
 from webscraper import Scraper
 
-import csv
-import json
+import redis
 
 class RedditScraper(Scraper):
 
@@ -18,7 +16,7 @@ class RedditScraper(Scraper):
         # Subreddit, ID of last thing we scraped
         self.MAGIC_URL = "http://www.reddit.com/r/%s/top/?sort=top&t=year&after=%s"
         self.lastID = ""
-        self.database = ""
+        self.db = redis.StrictRedis(host='localhost', port=6379, db=0)
         
     def scrapePage(self, subreddit, lastID):
         """ Given a subreddit and an id string, scrapes the page of the subreddit
@@ -58,11 +56,11 @@ class RedditScraper(Scraper):
 
     def scrapeComment(self,cUrl):
         # initialize dictionary, create soup
-        d = {'hash' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
+        post = {'hash' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
         soup = soupFromUrl(cUrl)
         title = soup.find('div',attrs={'class' : ' thing id-t3_' + hash_str + ' odd link '})
         # update attributes from title:
-        d = scrapeTitle(title,d)
+        post = scrapeTitle(title,post)
 
         # get only the parent comments:
         comments = soup.findAll('div',attrs={'class' : 'entry unvoted'})
@@ -75,14 +73,36 @@ class RedditScraper(Scraper):
         cParents = [x for x in cAll if x not in cChild]
         
         # for all of the parent comments, get text + upvotes
-        d['comments'] = [scrapeOneComment(x) for x in cParents]
+        post['comments'] = [scrapeOneComment(x) for x in cParents]
 
         # output to file
-        writePost(d)
-        return(d['hash'])
+        writePost(post)
+        return(post['hash'])
 
     def scrapeOneComment(self,comment):
 
+    def writePost(self, post):
+        """ Saves the post's data into our redis database. """
+
+        self.db.zadd('posts', post['id'], post['karma'])
+        self.db.hmset('post:' + post['id'], 
+                      {
+                          'name': post['name'],
+                          'date': post['date'],
+                          'content': post['content'],
+                          'karma': post['karma'],
+                          'comments': 'comments:' + post['id'],
+                      })
+        
+        for comment in post['comments']:
+            self.db.zadd('comments:' + post['id'],
+                         'comment:' + comment['id'],
+                         comment['karma'])
+            self.db.hmset('comment:' + comment['id'],
+                          {
+                              'content': comment['content'],
+                              'karma': comment['karma'],
+                          })
 
 if __name__ == "__main__":
     rs = RedditScraper();
