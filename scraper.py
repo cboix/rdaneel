@@ -108,5 +108,15 @@ class RedditScraper(Scraper):
                               'karma': comment['karma'],
                           })
 
+def test():
+    rs = RedditScraper()
+    rs.scrapePage('AskReddit', "1rgpdf")
+    firstID = rs.db.zrange('posts', 0, 0, desc=True)[0]
+    print "ID (should be '1qoyn2'):"
+    print firstID
+    firstTitle = rs.db.hget('post:' + firstID, 'title')
+    print "Title (should be 'Assume all of world history is a movie. What are the biggest plotholes?'):"
+    print firstTitle
+
 if __name__ == "__main__":
-    rs = RedditScraper();
+    test()
