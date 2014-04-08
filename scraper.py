@@ -15,17 +15,29 @@ class RedditScraper(Scraper):
     def __init__(self):
         super(RedditScraper, self).__init__()
         
-        # ID of last thing we scraped
-        self.MAGIC_URL = "http://www.reddit.com/r/AskReddit/top/?sort=top&t=year&after=%s"
+        # Subreddit, ID of last thing we scraped
+        self.MAGIC_URL = "http://www.reddit.com/r/%s/top/?sort=top&t=year&after=%s"
         self.lastID = ""
+        
+    def scrapeComments(self, url):
+        return ""
 
-    def scrapePage(self, year, month):
-        """ Given an id string, scrapes the page that begins with that id string,
-        writes the scraped data to files, and then returns the id of the last
-        element on the page. """
+    def scrapePage(self, subreddit, lastID):
+        """ Given a subreddit and an id string, scrapes the page of the subreddit
+        that begins with that id string, writes the scraped data to files, and
+        then returns the id of the last element on the page. """
 
-        # Find all urls/metadata
-        # for commentUrl:
-        #     scrapeComment(commentUrl)
-        # lastID = getLastID()
-        # return lastID
+        soup = self.soupFromParams([subreddit, lastID])
+        posts = soup.find(id="siteTable")
+        titles = posts.find_all(class_="title")
+        lastID = ""
+
+        for title in titles:
+            url = title.a.get('href')
+            print url
+            lastID = self.scrapeComments(url)
+            
+        return lastID
+
+if __name__ == "__main__":
+    rs = RedditScraper();
