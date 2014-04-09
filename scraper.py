@@ -4,6 +4,7 @@
 """
 
 from bs4 import BeautifulSoup
+# from BeautifulSoup import BeautifulSoup
 from webscraper import Scraper
 
 import redis
@@ -49,8 +50,6 @@ class RedditScraper(Scraper):
         d['karma'] = int(title['data-ups'].encode()) - \
                 int(title['data-downs'].encode())
         head = title.find('a', {'class' : 'title may-blank '})
-        d['name'] = head.getText().encode()
-        d['content'] = head['href'].encode()
         d['date'] = title.find('time')['title'].encode()
         return(d)
 
@@ -60,15 +59,20 @@ class RedditScraper(Scraper):
         # FIX encoding AND Hyperlinking!
         cDict['content'] = comment.find('div',{'class' : 'md'}).getText().encode()
         title = soup.find('div', {'data-fullname' : 't1_' + cDict['id'][:-3]})
-        cDict['karma'] = int(title['data-ups'].encode()) - \
-                int(title['data-downs'].encode())
+        if (title is None):
+            cDict = None
+        else: 
+            cDict['karma'] = int(title['data-ups'].encode()) - \
+                    int(title['data-downs'].encode())
         return(cDict)
 
     def scrapeComment(self,cUrl):
         # initialize dictionary, create soup
         post = {'id' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
         soup = self.soupFromURL(cUrl)
-        title = soup.find('div',attrs={'class' : ' thing id-t3_' + post['id'] + ' odd link '})
+        post['name'] = soup.find('title').getText().encode()
+        post['content'] = soup.find('meta',{ 'name' : 'description' })['content'].encode()
+        title = soup.find('div',attrs={'data-fullname' : 't3_' + post['id']})
         # update attributes from title:
         post = self.scrapeTitle(title,post)
 
@@ -83,11 +87,11 @@ class RedditScraper(Scraper):
         cChild = list(set(cChild)) # unique
         cChild = [x for x in cChild if x != None] # not needed
         cParents = [x for x in cAll if x not in cChild]
-        
+
         # for all of the parent comments, get text + upvotes
         post['comments'] = [self.scrapeOneComment(x,soup) for x in cParents]
-        # Filter those with more or less karma!? No.
-
+        # remove if none:
+        post['comments'] = [x for x in post['comments'] if x != None]
         # output to file and return hash:
         writePost(post)
         return(post['id'])
