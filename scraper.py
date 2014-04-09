@@ -15,7 +15,7 @@ class RedditScraper(Scraper):
         super(RedditScraper, self).__init__()
 
         # Subreddit, ID of last thing we scraped
-        self.MAGIC_URL = "http://www.reddit.com/r/%s/top/?sort=top&t=year&after=%s"
+        self.MAGIC_URL = "http://www.reddit.com/r/%s/top/?sort=top&t=year&after=t3_%s"
         self.lastID = ""
         self.db = redis.StrictRedis(host='localhost', port=6379, db=0)
         
