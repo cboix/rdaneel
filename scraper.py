@@ -95,11 +95,11 @@ class RedditScraper(Scraper):
     def writePost(self, post):
         """ Saves the post's data into our redis database. """
 
-        # Earth to Greg: take forum as well:
         self.db.zadd('posts', post['id'], post['karma'])
         self.db.hmset('post:' + post['id'], 
                       {
                           'name': post['name'],
+                          'forum': post['forum'],
                           'date': post['date'],
                           'content': post['content'],
                           'karma': post['karma'],
