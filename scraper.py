@@ -4,7 +4,6 @@
 """
 
 from bs4 import BeautifulSoup
-# from BeautifulSoup import BeautifulSoup
 from webscraper import Scraper
 
 import redis
@@ -13,6 +12,9 @@ class RedditScraper(Scraper):
 
     def __init__(self):
         super(RedditScraper, self).__init__()
+
+        # Unique user-agent to prevent Reddit from immediately blocking us
+        self.browser.addheaders = [('User-agent', "R. Daneel Olivaw, Esq.")]
 
         # Subreddit, ID of last thing we scraped
         self.MAGIC_URL = "http://www.reddit.com/r/%s/top/?sort=top&t=year&after=t3_%s"
@@ -26,23 +28,14 @@ class RedditScraper(Scraper):
 
         soup = self.soupFromParams([subreddit, lastID])
         posts = soup.find(id="siteTable")
-        titles = posts.find_all(class_="title")
+        titles = posts.find_all('p', class_="title")
         lastID = ""
 
         for title in titles:
             url = title.a.get('href')
-            print url
             lastID = self.scrapeComment(url)
             
         return lastID
-
-        """ Scrapes the individual page """
-
-        # Find all urls/metadata
-        # for commentUrl:
-        #     scrapeComment(commentUrl)
-        # lastID = getLastID()
-        # return lastID
 
     def scrapeTitle(self,title,d):
         """ Get the important attributes from the title and return 
@@ -57,7 +50,7 @@ class RedditScraper(Scraper):
     def scrapeOneComment(self,comment,soup):
         cDict = { 'id' : comment['id'].split('_')[1].encode()}
         # FIX encoding AND Hyperlinking!
-        cDict['content'] = comment.find('div',{'class' : 'md'}).getText().encode()
+        cDict['content'] = comment.find('div',{'class' : 'md'}).getText().encode('utf-8')
         title = soup.find('div', {'data-fullname' : 't1_' + cDict['id'][:-3]})
         if (title is None):
             cDict = None
@@ -68,7 +61,7 @@ class RedditScraper(Scraper):
 
     def scrapeComment(self,cUrl):
         # initialize dictionary, create soup
-        post = {'id' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
+        post = {'id' : cUrl.split('/')[4], 'forum' : cUrl.split('/')[2], 'postUrl' : cUrl}
         soup = self.soupFromURL(cUrl)
         post['name'] = soup.find('title').getText().encode()
         post['content'] = soup.find('meta',{ 'name' : 'description' })['content'].encode()
@@ -123,6 +116,7 @@ class RedditScraper(Scraper):
 def test():
     rs = RedditScraper()
     rs.scrapePage('AskReddit', "1rgpdf")
+
     firstID = rs.db.zrange('posts', 0, 0, desc=True)[0]
     print "ID (should be '1qoyn2'):"
     print firstID
