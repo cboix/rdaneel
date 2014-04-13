@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from webscraper import Scraper
 
 import redis
+import time
 
 class RedditScraper(Scraper):
 
@@ -34,6 +35,8 @@ class RedditScraper(Scraper):
         for title in titles:
             url = title.a.get('href')
             lastID = self.scrapeComment(url)
+            # Rate-limit ourselves so we don't get banned
+            time.sleep(2)
             
         return lastID
 
