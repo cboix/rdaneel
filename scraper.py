@@ -53,13 +53,16 @@ class RedditScraper(Scraper):
     def scrapeOneComment(self,comment,soup):
         cDict = { 'id' : comment['id'].split('_')[1].encode()}
         # FIX encoding AND Hyperlinking!
-        cDict['content'] = comment.find('div',{'class' : 'md'}).getText().encode('utf-8')
-        title = soup.find('div', {'data-fullname' : 't1_' + cDict['id'][:-3]})
-        if (title is None):
-            cDict = None
-        else: 
-            cDict['karma'] = int(title['data-ups'].encode()) - \
+        try:
+            cDict['content'] = comment.find('div',{'class' : 'md'}).getText().encode('utf-8')
+            title = soup.find('div', {'data-fullname' : 't1_' + cDict['id'][:-3]})
+            if (title is None):
+                cDict = None
+            else: 
+                cDict['karma'] = int(title['data-ups'].encode()) - \
                     int(title['data-downs'].encode())
+        except AttributeError:
+            cDict = None
         return(cDict)
 
     def scrapeComment(self,cUrl):
@@ -89,13 +92,17 @@ class RedditScraper(Scraper):
         # remove if none:
         post['comments'] = [x for x in post['comments'] if x != None]
         # output to file and return hash:
-        writePost(post)
+        self.writePost(post)
         return(post['id'])
 
     def writePost(self, post):
         """ Saves the post's data into our redis database. """
-
-        self.db.zadd('posts', post['id'], post['karma'])
+        """
+        print "post id: ", post['id']
+        print "post karma: ", post['karma']
+        print "type of post karma: ", type(post['karma'])
+        """
+        self.db.zadd('posts', post['karma'], post['id'])
         self.db.hmset('post:' + post['id'], 
                       {
                           'name': post['name'],
@@ -108,8 +115,8 @@ class RedditScraper(Scraper):
         
         for comment in post['comments']:
             self.db.zadd('comments:' + post['id'],
-                         'comment:' + comment['id'],
-                         comment['karma'])
+                         comment['karma'],
+                         'comment:' + comment['id'])
             self.db.hmset('comment:' + comment['id'],
                           {
                               'content': comment['content'],
@@ -121,11 +128,13 @@ def test():
     rs.scrapePage('AskReddit', "1rgpdf")
 
     firstID = rs.db.zrange('posts', 0, 0, desc=True)[0]
-    print "ID (should be '1qoyn2'):"
-    print firstID
     firstTitle = rs.db.hget('post:' + firstID, 'title')
-    print "Title (should be 'Assume all of world history is a movie. What are the biggest plotholes?'):"
-    print firstTitle
 
 if __name__ == "__main__":
-    test()
+    rs = RedditScraper()
+    lastID = "1sa2gr" # Top AskReddit post of all time
+
+    # Can only scan the first 40 pages of top
+    for i in range(40):
+        print "Page %d: %s" % (i, lastID)
+        lastID = rs.scrapePage('AskReddit', lastID)
