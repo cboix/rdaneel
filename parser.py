@@ -9,7 +9,6 @@ from gensim.corpora.mmcorpus import MmCorpus
 
 import redis
 
-
 # Our Redis database
 db = redis.StrictRedis(host='localhost', port=6379, db=0)
 
