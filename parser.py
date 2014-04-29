@@ -4,17 +4,17 @@
 """
 
 from collections import defaultdict
+from gensim.corpora.dictionary import Dictionary
+from gensim.corpora.mmcorpus import MmCorpus
 
 import redis
 
+
 # Our Redis database
-db = redis.StrictRedis(host='localhost', port=6379, db-0)
+db = redis.StrictRedis(host='localhost', port=6379, db=0)
 
-# Every word seen in comments and the number of times we've seen them in comments
-commentWordCounts = defaultdict(int)
-
-# Every word seen in titles and the number of times we've seen them in titles
-titleWordCounts = defaultdict(int)
+# Maps words to ids, keeps track of global frequency and per-document frequency
+globalDict = Dictionary
 
 # Words to exclude from our analysis (selected somewhat arbitrarily from 
 # https://en.wikipedia.org/wiki/Most_common_words_in_English)
@@ -31,8 +31,13 @@ ignoreSet = set(ignoreList)
 stripChars = ['\'', '"', '\\', '?', '!', '.', ',', '#', '$', '%', '^', '&', '*',
               '(', ')', '-', '+', '=', '[', ']', '{', '}', '/', '~', '`',]
 
-def cleanAndSplitString(s):
-    """ Sends s to lowercase, strips off all special characters, and splits. """
+# Differentiate words that appear in titles so that we can weight them more
+# strongly
+titleMarker = '#'
+
+def cleanAndSplitString(s, isTitle=False):
+    """ Sends s to lowercase, strips off all special characters, splits, adds a
+    marker token for titles. """
 
     s = s.lower()
     for char in stripChars:
@@ -40,44 +45,74 @@ def cleanAndSplitString(s):
 
     words = s.split()
     filtered = filter(lambda w: w not in ignoreSet, words)
+    if isTitle:
+        filtered = ['#' + w for w in filtered]
 
     return filtered
 
-def addToCounts(words, isTitle=False):
-    """ Adds each word in words to the appropriate wordCounts dictionary. """
-
-    if isTitle:
-        for word in words:
-            titleWordCounts[word] += 1
-    else:
-        for word in words:
-            commentWordCounts[word] += 1
-
-def countContent(contentid, isTitle=False):
-    """ Cleans and counts the words in the given post title or comment, stores
+def contentFromId(contentid, isTitle=False):
+    """ Cleans and splits the words in the given post title or comment, stores
     the cleaned content as a field in the post/comment. """
 
     keyword = 'name' if isTitle else 'content'
     content = db.hget(contentid, keyword)
     cleanList = cleanAndSplitString(content)
-    addToCounts(cleanList, isTitle)
-    
-    cleanContent = ' '.join(cleanList)
-    db.hset(contentid, 'cleancontent', cleanContent)
+    db.hset(contentid, 'cleancontent', cleanList)
 
-def buildWordCounts():
-    """ Count all words from titles and comments. """
+    return cleanContent
+
+def addPostToDict(postid):
+    """ Adds the given post to the dictionary. """
+
+    postKey = 'post:%s' % postid
+    title = contentFromId(postKey, isTitle=True)
+    
+    commentKey = 'comments:%s' % postid
+    numComments = db.zcard(commentKey)
+    commentids = db.zrevrange(commentKey, 0, numComments)
+
+    comments = [contentFromId(commentid) for commentid in commentids]
+    # Flatten comments
+    postContent = [word for comment in comments for word in comment]
+    postContent.extend(title)
+
+    db.hadd(postKey, 'document', postContent)
+    globalDict.doc2bow(postContent, allow_update=True)
+
+def buildDictionary(force=False):
+    """ Build a dictionary in which each post corresponds to a document. """
+
+    if force or len(globalDict.keys() == 0):
+        numPosts = db.zcard('posts')
+        postids = db.zrevrange('posts', 0, numPosts)
+    
+        for postid in postids:
+            addPostToDict(postid)
+
+def corpusOfPost(postid, force=False):
+    """ Returns the contents of the given post in corpus vector form. """
+
+    postKey = 'post:%s' % postid
+    corpus = db.hget(postKey, 'corpus')
+
+    if force or corpus is None:
+        content = db.hget(postKey, 'document')
+        corpus = globalDict.doc2bow(content)
+        db.hadd(postKey, 'corpus', corpus)
+
+    return corpus
+
+def buildCorpus():
+    """ Returns a corpus object that contains sparse vectors from every post. """
 
     numPosts = db.zcard('posts')
     postids = db.zrevrange('posts', 0, numPosts)
     
-    for postid in postids:
-        postContentId = 'post:%s' % postid
-        countContent(postContentId, isTitle=True)
+    # Generator for all corpuses
+    corpusGen = (corpusOfPost(postid) for postid in postids)
+    return corpusGen
 
-        commentStr = 'comments:%s' % postid
-        numComments = db.zcard(commentStr)
-        commentids = db.zrevrange(commentStr, 0, numComments)
-
-        for commentid in commentids:
-            countContent(commentid)
+if __name__ == "__main__":
+    buildDictionary()
+    corpus = buildCorpus()
+    MmCorpus.serialize('redditcorpus.mm', corpus)
