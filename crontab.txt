@@ -1,0 +1,3 @@
+MAILTO=""
+30 12 * * * sudo python ~/rdaneel/scraper.py > /home/ubuntu/rdaneel/cronout
+
