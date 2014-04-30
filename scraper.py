@@ -5,9 +5,15 @@
 
 from bs4 import BeautifulSoup
 from webscraper import Scraper
+from sys import argv
+from httplib import IncompleteRead
+from urllib2 import HTTPError
 
 import redis
 import time
+
+# Maximum number of times that we're willing to retry after a failed connection
+MAX_RETRIES = 3
 
 class RedditScraper(Scraper):
 
@@ -18,7 +24,7 @@ class RedditScraper(Scraper):
         self.browser.addheaders = [('User-agent', "R. Daneel Olivaw, Esq.")]
 
         # Subreddit, ID of last thing we scraped
-        self.MAGIC_URL = "http://www.reddit.com/r/%s/top/?sort=top&t=year&after=t3_%s"
+        self.MAGIC_URL = "http://www.reddit.com/r/%s/top/?sort=top&t=day&after=t3_%s"
         self.lastID = ""
         self.db = redis.StrictRedis(host='localhost', port=6379, db=0)
         
@@ -29,29 +35,38 @@ class RedditScraper(Scraper):
 
         soup = self.soupFromParams([subreddit, lastID])
         posts = soup.find(id="siteTable")
-        titles = posts.find_all('p', class_="title")
+        titleLinks = posts.find_all('a', class_="comments")
+
+        if titleLinks == []:
+            raise EOFError()
+
         lastID = ""
 
-        for title in titles:
-            url = title.a.get('href')
-            lastID = self.scrapeComment(url)
-            # Rate-limit ourselves so we don't get banned
-            time.sleep(2)
-            
+        for link in titleLinks:
+            retries = 0
+            url = link.get('href')
+            while retries < MAX_RETRIES:
+                try:
+                    lastID = self.scrapeComment(url)
+                    retries = MAX_RETRIES
+                except HTTPError:
+                    retries += 1
+                
+
         return lastID
 
     def scrapeTitle(self,title,d):
         """ Get the important attributes from the title and return 
         the updated dictionary with them """
-        d['karma'] = int(title['data-ups'].encode()) - \
-                int(title['data-downs'].encode())
+        d['karma'] = int(title['data-ups'].encode('utf-8')) - \
+                int(title['data-downs'].encode('utf-8'))
         head = title.find('a', {'class' : 'title may-blank '})
-        d['date'] = title.find('time')['title'].encode()
+        d['date'] = title.find('time')['title'].encode('utf-8')
         return(d)
 
     # scrape a single comment, return id, content, karma.
     def scrapeOneComment(self,comment,soup):
-        cDict = { 'id' : comment['id'].split('_')[1].encode()}
+        cDict = { 'id' : comment['id'].split('_')[1].encode('utf-8')}
         # FIX encoding AND Hyperlinking!
         try:
             cDict['content'] = comment.find('div',{'class' : 'md'}).getText().encode('utf-8')
@@ -59,18 +74,18 @@ class RedditScraper(Scraper):
             if (title is None):
                 cDict = None
             else: 
-                cDict['karma'] = int(title['data-ups'].encode()) - \
-                    int(title['data-downs'].encode())
+                cDict['karma'] = int(title['data-ups'].encode('utf-8')) - \
+                    int(title['data-downs'].encode('utf-8'))
         except AttributeError:
             cDict = None
         return(cDict)
 
     def scrapeComment(self,cUrl):
         # initialize dictionary, create soup
-        post = {'id' : cUrl.split('/')[4], 'forum' : cUrl.split('/')[2], 'postUrl' : cUrl}
+        post = {'id' : cUrl.split('/')[6], 'forum' : cUrl.split('/')[4], 'postUrl' : cUrl}
         soup = self.soupFromURL(cUrl)
-        post['name'] = soup.find('title').getText().encode()
-        post['content'] = soup.find('meta',{ 'name' : 'description' })['content'].encode()
+        post['name'] = soup.find('title').getText().encode('utf-8')
+        post['content'] = soup.find('meta',{ 'name' : 'description' })['content'].encode('utf-8')
         title = soup.find('div',attrs={'data-fullname' : 't3_' + post['id']})
         # update attributes from title:
         post = self.scrapeTitle(title,post)
@@ -131,10 +146,17 @@ def test():
     firstTitle = rs.db.hget('post:' + firstID, 'title')
 
 if __name__ == "__main__":
-    rs = RedditScraper()
-    lastID = "1sa2gr" # Top AskReddit post of all time
+    if len(argv) < 2:
+        lastID = ""
+    else:
+        script, lastID = argv
 
-    # Can only scan the first 40 pages of top
-    for i in range(40):
-        print "Page %d: %s" % (i, lastID)
-        lastID = rs.scrapePage('AskReddit', lastID)
+    rs = RedditScraper()
+
+    try:
+        # Can only scan the first 40 pages of top
+        for i in range(40):
+            print "Page %d: %s" % (i, lastID)
+            lastID = rs.scrapePage('AskReddit', lastID)
+    except EOFError:
+        pass
