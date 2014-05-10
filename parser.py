@@ -5,15 +5,17 @@
 
 from collections import defaultdict
 from gensim.corpora.dictionary import Dictionary
-from gensim.corpora.mmcorpus import MmCorpus
+from gensim.corpora.bleicorpus import BleiCorpus
 
 import redis
+import json
+import time
 
 # Our Redis database
 db = redis.StrictRedis(host='localhost', port=6379, db=0)
 
 # Maps words to ids, keeps track of global frequency and per-document frequency
-globalDict = Dictionary
+globalDict = Dictionary()
 
 # Words to exclude from our analysis (selected somewhat arbitrarily from 
 # https://en.wikipedia.org/wiki/Most_common_words_in_English)
@@ -55,10 +57,11 @@ def contentFromId(contentid, isTitle=False):
 
     keyword = 'name' if isTitle else 'content'
     content = db.hget(contentid, keyword)
-    cleanList = cleanAndSplitString(content)
-    db.hset(contentid, 'cleancontent', cleanList)
+    cleanList = cleanAndSplitString(content, isTitle)
+    listStr = json.dumps(cleanList)
+    db.hset(contentid, 'cleancontent', listStr)
 
-    return cleanContent
+    return cleanList
 
 def addPostToDict(postid):
     """ Adds the given post to the dictionary. """
@@ -75,31 +78,54 @@ def addPostToDict(postid):
     postContent = [word for comment in comments for word in comment]
     postContent.extend(title)
 
-    db.hadd(postKey, 'document', postContent)
+    contentStr = json.dumps(postContent)
+    db.hset(postKey, 'document', contentStr)
+
     globalDict.doc2bow(postContent, allow_update=True)
 
 def buildDictionary(force=False):
     """ Build a dictionary in which each post corresponds to a document. """
 
-    if force or len(globalDict.keys() == 0):
+    if force or len(globalDict.keys()) == 0:
         numPosts = db.zcard('posts')
         postids = db.zrevrange('posts', 0, numPosts)
-    
+
+        count = 0
         for postid in postids:
+            if count % 100 == 0:
+                print "Added %d out of %d to dictionary: %s" % (count, numPosts, time.strftime("%H:%M:%S"))
             addPostToDict(postid)
+            count += 1
 
 def corpusOfPost(postid, force=False):
     """ Returns the contents of the given post in corpus vector form. """
 
     postKey = 'post:%s' % postid
-    corpus = db.hget(postKey, 'corpus')
+    corpusStr = db.hget(postKey, 'corpus')
 
-    if force or corpus is None:
-        content = db.hget(postKey, 'document')
-        corpus = globalDict.doc2bow(content)
-        db.hadd(postKey, 'corpus', corpus)
+    if force or corpusStr is None:
+        docStr = db.hget(postKey, 'document')
+        doc = json.loads(docStr)
+        corpus = globalDict.doc2bow(doc)
+        corpusStr = json.dumps(corpus)
+        db.hset(postKey, 'corpus', corpusStr)
+    else:
+        corpus = json.loads(corpusStr)
 
     return corpus
+
+class RedisCorpus(object):
+    def __init__(self, postids):
+        self.postids = postids
+        self.numPosts = len(postids)
+        self.count = 0
+        
+    def __iter__(self):
+        for postid in self.postids:
+            if self.count % 100 == 0:
+                print "Wrote %d out of %d to corpus: %s" % (self.count, self.numPosts, time.strftime("%H:%M:%S"))
+            self.count += 1
+            yield corpusOfPost(postid, force=True)
 
 def buildCorpus():
     """ Returns a corpus object that contains sparse vectors from every post. """
@@ -108,10 +134,10 @@ def buildCorpus():
     postids = db.zrevrange('posts', 0, numPosts)
     
     # Generator for all corpuses
-    corpusGen = (corpusOfPost(postid) for postid in postids)
-    return corpusGen
+    corpus = RedisCorpus(postids)
+    return corpus
 
 if __name__ == "__main__":
     buildDictionary()
     corpus = buildCorpus()
-    MmCorpus.serialize('redditcorpus.mm', corpus)
+    BleiCorpus.serialize('redditcorpus.lda-c', corpus)
