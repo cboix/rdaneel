@@ -34,11 +34,11 @@ ignoreList = ["the", "are", "is", "were", "was", "to", "of", "and", "a", "in",
 ignoreSet = set(ignoreList)
 
 # Characters to remove from our strings
-stripChars = ['\'', '"', '\\', '?', '!', '.', ',', '#', '$', '%', '^', '&', '*',
+stripChars = ['"', '\\', '?', '!', '.', ',', '#', '$', '%', '^', '&', '*',
               '(', ')', '-', '+', '=', '[', ']', '{', '}', '/', '~', '`', ]
 
 # Characters to remove without replacing with spaces
-noSpaceChars = [';', ':']
+noSpaceChars = [';', ':', '\'']
 
 # Differentiate words that appear in titles so that we can weight them more
 # strongly

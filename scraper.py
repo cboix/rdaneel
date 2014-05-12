@@ -28,12 +28,11 @@ class RedditScraper(Scraper):
         self.lastID = ""
         self.db = redis.StrictRedis(host='localhost', port=6379, db=0)
         
-    def scrapePage(self, subreddit, lastID):
-        """ Given a subreddit and an id string, scrapes the page of the subreddit
-        that begins with that id string, writes the scraped data to files, and
-        then returns the id of the last element on the page. """
+    def scrapePageHelper(self, soup):
+        """ Given a BeautifulSoup representation of a reddit page, scrapes all
+        the comments from every post on the page and returns the ID of the last
+        post. """
 
-        soup = self.soupFromParams([subreddit, lastID])
         posts = soup.find(id="siteTable")
         titleLinks = posts.find_all('a', class_="comments")
 
@@ -51,9 +50,16 @@ class RedditScraper(Scraper):
                     retries = MAX_RETRIES
                 except HTTPError:
                     retries += 1
-                
 
         return lastID
+
+    def scrapePage(self, subreddit, lastID):
+        """ Given a subreddit and an id string, scrapes the page of the subreddit
+        that begins with that id string, writes the scraped data to files, and
+        then returns the id of the last element on the page. """
+
+        soup = self.soupFromParams([subreddit, lastID])
+        return self.scrapePageHelper(soup)
 
     def scrapeTitle(self,title,d):
         """ Get the important attributes from the title and return 
@@ -138,6 +144,54 @@ class RedditScraper(Scraper):
                               'karma': comment['karma'],
                           })
 
+    def mainLoop(self, lastID):
+        """ The main scraping loop. """
+
+        try:
+            # Can only scan the first 40 pages of top
+            for i in range(40):
+                print "Page %d: %s" % (i, lastID)
+                lastID = self.scrapePage('AskReddit', lastID)
+        except EOFError:
+            pass
+
+
+class WayBackScraper(RedditScraper):
+
+    def __init__(self):
+        super(RedditScraper, self).__init__()
+
+        # We don't really have parameters...
+        self.WAYBACK_URL = "https://web.archive.org%s"
+
+    def getNextPage(self, soup):
+        """ Given the Beautiful Soup representation of the current page, returns
+        the parameter for the next page to scrape. """
+
+        nexta = soup.select('a[alt="Next capture"]')
+        nextPage = nexta.get('href')
+        print "nextPage is ", nextPage
+        return nextPage
+
+    def scrapePage(self, page):
+
+        url = self.WAYBACK_URL % page
+        soup = self.soupFromURL(url)
+        self.scrapePageHelper(soup)
+
+        nextPage = self.getNextPage(soup)
+        return nextPage
+
+    def mainLoop(self, page)
+        try:
+            i = 0
+            while page != "/web/20140131131310/http://www.reddit.com/r/AskReddit":
+                print "Page %d: %s" % (i, page)
+                page = self.scrapePage(page)
+                i += 1
+        except EOFError:
+            pass
+
 def test():
     rs = RedditScraper()
     rs.scrapePage('AskReddit', "1rgpdf")
@@ -147,16 +201,12 @@ def test():
 
 if __name__ == "__main__":
     if len(argv) < 2:
-        lastID = ""
+        lastID = "/web/20130408115238/http://www.reddit.com/r/askreddit"
     else:
         script, lastID = argv
 
-    rs = RedditScraper()
+    # rs = RedditScraper()
+    # rs.mainLoop(lastID)
 
-    try:
-        # Can only scan the first 40 pages of top
-        for i in range(40):
-            print "Page %d: %s" % (i, lastID)
-            lastID = rs.scrapePage('AskReddit', lastID)
-    except EOFError:
-        pass
+    wbs = WayBackScraper()
+    wbs.mainLoop(lastID)
