@@ -30,7 +30,7 @@ ignoreList = ["the", "are", "is", "were", "was", "to", "of", "and", "a", "in",
               "from", "we", "or", "an", "will", "my", "your", "all", "there",
               "what", "so", "up", "down", "out", "if", "about", "no", "yes",
               "just", "him", "its", "also", "any", "me", "like", "be", "im",
-              "them", "dont", ]
+              "them", "dont", "got", "get", "because", "then", "when", ]
 ignoreSet = set(ignoreList)
 
 # Characters to remove from our strings
@@ -44,9 +44,6 @@ noSpaceChars = [';', ':', '\'']
 # strongly
 titleMarker = '#'
 
-# We need to map ids to posts, but we also need to ignore them as words
-idMarker = '$'
-
 def cleanAndSplitString(s, isTitle=False):
     """ Sends s to lowercase, strips off all special characters, splits, adds a
     marker token for titles. """
@@ -59,7 +56,9 @@ def cleanAndSplitString(s, isTitle=False):
         s = s.replace(char, '')
 
     words = s.split()
-    filtered = filter(lambda w: w not in ignoreSet, words)
+
+    # We don't need an explicit filter list; can just use filter_extremes later
+    filtered = words #filter(lambda w: w not in ignoreSet, words)
     if isTitle:
         filtered = ['#' + w for w in filtered]
 
@@ -95,9 +94,6 @@ def addPostToDict(postid):
     postContent = [word for comment in comments for word in comment]
     postContent.extend(title)
 
-    # Add the id to the contents
-    postContent.append(idMarker + postid)
-
     contentStr = json.dumps(postContent)
     db.hset(postKey, 'document', contentStr)
 
@@ -116,6 +112,8 @@ def getPostids():
 def buildDictionary(force=False):
     """ Build a dictionary in which each post corresponds to a document. """
 
+    global globalDict
+
     if force or not isfile(dictName):
         postids = getPostids()
         numPosts = len(postids)
@@ -126,9 +124,11 @@ def buildDictionary(force=False):
                 print "Added %d out of %d to dictionary: %s" % (count, numPosts, time.strftime("%H:%M:%S"))
             addPostToDict(postid)
             count += 1
-
     else:
         globalDict = Dictionary.load(dictName)
+
+    # Filter out extremely common words
+    globalDict.filter_extremes(no_below=2, no_above=0.5)
 
 def corpusOfPost(postid, force=False):
     """ Returns the contents of the given post in corpus vector form. """
@@ -147,6 +147,11 @@ def corpusOfPost(postid, force=False):
 
     return corpus
 
+def addCorpusMap(index, postid):
+    """ Adds a mapping from index to postid in the redis db. """
+    
+    db.hset('idlookup', index, postid)
+
 class RedisCorpus(object):
     def __init__(self, postids):
         self.postids = postids
@@ -157,6 +162,7 @@ class RedisCorpus(object):
         for postid in self.postids:
             if count % 100 == 0:
                 print "Wrote %d out of %d to corpus: %s" % (count, self.numPosts, time.strftime("%H:%M:%S"))
+            addCorpusMap(count, postid)
             count += 1
             yield corpusOfPost(postid, force=True)
 
